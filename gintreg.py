@@ -195,9 +195,9 @@ class GeneralizedIntervalRegressor():
         
         x0 = [1]*self.partitions[-1][-1] # starting values for estimates
         method = 'Nelder-Mead'
-        
-        return minimize(self.llf, x0, method=method)
-    
+        # opts={"maxiter":5000, "maxfev":5000}
+        # return minimize(self.llf, x0, method=method, options=opts)
+        return minimize(self.llf, x0, method=method, options={"maxiter":500*len(self.point), "maxfev":500*(len(self.point))})
     
     
     

@@ -34,6 +34,7 @@ built fit(): ...
     - pass through arguments (e.g. method)
     - anything else?
 rework results summary display to show estimate names (e.g. mu_cons, mu_x1, ..., sigma_cons, sigma_x1,...)
+investigate custom progress readout for scipy.min
 postestimation commands (easy)
     - gini
     - aic / bic 
@@ -42,11 +43,16 @@ postestimation commands (easy)
 
 ################### IMPORT PACKAGES #########################
 import numpy as np
-from scipy.stats import norm
+import math as math
+from scipy.stats import norm, gamma
 from scipy.optimize import minimize 
 from statsmodels.tools.tools import add_constant
 
+########### IMPORT PACKAGES FOR TESTING #############
+from scipy.stats import skewnorm
 
+########### Functions for Evaluation #############
+sign = lambda x: math.copysign(1, x)
 
 ################### DISTRIBUTION LIBRARY ####################
 class Distribution:
@@ -73,13 +79,29 @@ class Normal(Distribution):
 
 class NormalUnitVariance(Distribution): # example of a 'special case' by constraining parameter(s)
     
-     parameters = ['mu']
+    parameters = ['mu']
      
-     def logcdf(y,mu):
-         return Normal.logcdf(y,mu,sigma=1)
+    def logcdf(y,mu):
+        return Normal.logcdf(y,mu,sigma=1)
+    
+    def logpdf(y,mu):
+        return Normal.logpdf(y,mu,sigma=1)
      
-     def logpdf(y,mu):
-         return Normal.logpdf(y,mu,sigma=1)
+class SkewedNormal(Distribution): 
+    
+     parameters = ['mu', 'sigma', 'lam', 'p']
+     
+     def logcdf(y,mu,sigma,lam, p=2): #working on building these fns out
+        lam = (np.exp(lam) - 1)/ (np.exp(lam)+1)
+        z = (abs(y - mu)**p)/((np.exp(sigma)**p)*(1+lam*sign(y - mu))**p)
+        return .5*(1-lam) + .5*(1 + lam*sign(y-mu))*sign(y-mu)*gamma.pdf(x=z, a=(1/p))
+     
+     def logpdf(y,mu,sigma,lam, p=2):
+        lam = (np.exp(lam) - 1)/ (np.exp(lam)+1)
+        x = y - mu
+        s = np.log(p) - (abs(x)** p / (np.exp(sigma)*(1+lam*sign(x)))**p)
+        l = np.log(2) + sigma + math.lgamma((1/p))
+        return s - l
 
 
 
@@ -102,7 +124,8 @@ class GeneralizedIntervalRegressor():
         self.y2 = y2
 
         distributions = {
-            'normal':Normal
+            'normal':Normal,
+            'snormal': SkewedNormal
             }
         self.dist = distributions[distribution]
         
@@ -203,18 +226,53 @@ class GeneralizedIntervalRegressor():
     
     
     
-################ TEST ################## sorry for spaghetti comments!!
+################ NORM DIST TEST ################## sorry for spaghetti comments!!
+# x = np.arange(100)
+# e = np.random.normal(size=(100,))
+# B0 = 2 # contant is 2
+# B1 = 5 # coeff on x is 5
+# y = B0 + x*B1 + e # this is the 'truth'; gintreg tries to estimate B0 and B1
+# # using only y and x (and the assumption that e is normally distributed)
+
+# model = GeneralizedIntervalRegressor(y, y, mu=x) # simple example: point data, 
+# # one covariate affecting location parameter and using the normal distribution.
+# starting_estimates = [1,1,1] # guesses for B0,B1,sigma. 
+# #print(model.llf(starting_estimates)) # prints loglikihood value for model at starting_estimates
+# print(model.fit())
+
+"""
+### outcomes ###
+sigma is not estimating efficiently, max iterations and max function evaluations adjusted
+to allow more consistent convergence, but may want to optimize later for computation efficiency
+"""
+"""
+### to do ###
+test rc, lc, interval
+"""
+
+
+################ SNORM DIST TEST ################## sorry for spaghetti comments!!
 x = np.arange(100)
-e = np.random.normal(size=(100,))
+# a = skewness parameter, When a = 0 the distribution is identical to a normal distribution
+a = 4
+e = skewnorm.rvs(a, size=100)
 B0 = 2 # contant is 2
 B1 = 5 # coeff on x is 5
 y = B0 + x*B1 + e # this is the 'truth'; gintreg tries to estimate B0 and B1
-# using only y and x (and the assumption that e is normally distributed)
+# using only y and x (and the assumption that e is skewed normal distributed)
 
-model = GeneralizedIntervalRegressor(y, y, mu=x) # simple example: point data, 
+#     parameters = ['mu', 'sigma', 'lam', 'p']
+model = GeneralizedIntervalRegressor(y, y, mu=x, distribution='snormal') # simple example: point data, 
 # one covariate affecting location parameter and using the normal distribution.
-starting_estimates = [1,1,1] # guesses for B0,B1,sigma. 
+starting_estimates = [1,1,1,1] # guesses for B0,B1,sigma,lamda 
 #print(model.llf(starting_estimates)) # prints loglikihood value for model at starting_estimates
 print(model.fit())
 
-# notes: for interval data, sigma is not being estimated well. That's what throwing it off.
+"""
+### outcomes ###
+interval data is not estimating efficiently, max iterations and max function evaluations adjusted
+to allow more consistent convergence, but may want to optimize later for computation efficiency
+"""
+a = 4
+mean, var, skew, kurt = skewnorm.stats(a, moments='mvsk')
+r = skewnorm.rvs(a, size=1000)
